@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
     Gallery.init();
     ScrollAnimations.init();
     SmoothScroll.init();
+    CookieConsent.init();
 });
 
 /**
@@ -270,5 +271,170 @@ const Utils = {
                 setTimeout(() => inThrottle = false, limit);
             }
         };
+    }
+};
+
+/**
+ * Cookie Consent Module
+ * Handles GDPR-compliant cookie consent for GA4 analytics
+ */
+const CookieConsent = {
+    GA4_ID: 'G-PMKHP0L2RL',
+    STORAGE_KEY: 'cookie_consent',
+    banner: null,
+
+    // Bilingual text
+    text: {
+        en: {
+            message: 'This site uses cookies to understand how visitors interact with it.',
+            accept: 'Accept',
+            decline: 'Decline',
+            learnMore: 'Learn more'
+        },
+        nl: {
+            message: 'Deze site gebruikt cookies om te begrijpen hoe bezoekers ermee omgaan.',
+            accept: 'Accepteren',
+            decline: 'Weigeren',
+            learnMore: 'Meer info'
+        }
+    },
+
+    init() {
+        // Set default consent state (denied until user accepts)
+        this.setDefaultConsent();
+
+        const consent = this.getConsent();
+
+        if (consent === 'granted') {
+            this.loadGA4();
+        } else if (consent === null) {
+            this.showBanner();
+        }
+        // If consent === 'denied', do nothing (no banner, no GA4)
+
+        this.setupSettingsLink();
+    },
+
+    getLang() {
+        return document.documentElement.lang === 'nl' ? 'nl' : 'en';
+    },
+
+    getConsent() {
+        return localStorage.getItem(this.STORAGE_KEY);
+    },
+
+    setConsent(value) {
+        localStorage.setItem(this.STORAGE_KEY, value);
+    },
+
+    setDefaultConsent() {
+        // Tell GA4 to deny analytics storage by default
+        window.dataLayer = window.dataLayer || [];
+        function gtag() { window.dataLayer.push(arguments); }
+        window.gtag = gtag;
+
+        gtag('consent', 'default', {
+            'analytics_storage': 'denied'
+        });
+    },
+
+    showBanner() {
+        const lang = this.getLang();
+        const t = this.text[lang];
+        const privacyUrl = lang === 'nl' ? '/nl/privacy.html' : '/privacy.html';
+
+        this.banner = document.createElement('div');
+        this.banner.className = 'cookie-banner';
+        this.banner.setAttribute('role', 'dialog');
+        this.banner.setAttribute('aria-label', lang === 'nl' ? 'Cookie toestemming' : 'Cookie consent');
+        this.banner.innerHTML = `
+            <div class="cookie-banner-content">
+                <p class="cookie-banner-text">
+                    ${t.message}
+                    <a href="${privacyUrl}" class="cookie-banner-link">${t.learnMore}</a>
+                </p>
+                <div class="cookie-banner-actions">
+                    <button type="button" class="cookie-btn cookie-btn-decline">${t.decline}</button>
+                    <button type="button" class="cookie-btn cookie-btn-accept">${t.accept}</button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(this.banner);
+
+        // Trigger animation
+        requestAnimationFrame(() => {
+            this.banner.classList.add('visible');
+        });
+
+        // Event listeners
+        this.banner.querySelector('.cookie-btn-accept').addEventListener('click', () => this.handleAccept());
+        this.banner.querySelector('.cookie-btn-decline').addEventListener('click', () => this.handleDecline());
+    },
+
+    hideBanner() {
+        if (!this.banner) return;
+
+        this.banner.classList.remove('visible');
+        this.banner.addEventListener('transitionend', () => {
+            this.banner.remove();
+            this.banner = null;
+        }, { once: true });
+    },
+
+    handleAccept() {
+        this.setConsent('granted');
+        this.updateConsentState('granted');
+        this.loadGA4();
+        this.hideBanner();
+    },
+
+    handleDecline() {
+        this.setConsent('denied');
+        this.updateConsentState('denied');
+        this.hideBanner();
+    },
+
+    updateConsentState(state) {
+        if (window.gtag) {
+            window.gtag('consent', 'update', {
+                'analytics_storage': state
+            });
+        }
+    },
+
+    loadGA4() {
+        // Check if already loaded
+        if (document.querySelector(`script[src*="googletagmanager.com/gtag/js?id=${this.GA4_ID}"]`)) {
+            return;
+        }
+
+        // Load gtag.js script
+        const script = document.createElement('script');
+        script.async = true;
+        script.src = `https://www.googletagmanager.com/gtag/js?id=${this.GA4_ID}`;
+        document.head.appendChild(script);
+
+        // Initialize gtag
+        window.dataLayer = window.dataLayer || [];
+        function gtag() { window.dataLayer.push(arguments); }
+        window.gtag = gtag;
+
+        gtag('js', new Date());
+        gtag('consent', 'update', { 'analytics_storage': 'granted' });
+        gtag('config', this.GA4_ID);
+    },
+
+    setupSettingsLink() {
+        document.querySelectorAll('.cookie-settings-link').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                // Clear consent and show banner again
+                localStorage.removeItem(this.STORAGE_KEY);
+                if (!this.banner) {
+                    this.showBanner();
+                }
+            });
+        });
     }
 };
